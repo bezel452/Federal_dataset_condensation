@@ -7,6 +7,9 @@ parser.add_argument("--device", type=str, default="cuda:1")
 
 parser.add_argument("--dataset_root", type=str, default="/home/data/datasets")
 parser.add_argument("--dataset", type=str, default='CIFAR10')
+parser.add_argument("--img_save", type=str, default='False')
+parser.add_argument("--syn_path", type=str, default="images", help="The direction for saving synthetic images.")
+parser.add_argument("--init_img_save", type=str, default="False", help="Save the initialized synthetic images.")
 
 parser.add_argument("--alpha", type=float, default=0.1)
 parser.add_argument("--dsa", type=bool, default=True,
@@ -41,3 +44,9 @@ parser.add_argument("--c_ipc", type=int, default=50, help="client dm ipc")
 parser.add_argument("--c_dc_iter", type=int, default=1000)
 
 parser.add_argument("--top_k", type=int, default=3, help="select top k class in each client")
+
+parser.add_argument("--threshold", type=int, default=100, help="The threshold of clients selecting class used to synthetic the initialized data for the server.")
+
+parser.add_argument("--c_init_sample", type = str, default="real_sample", help="The data used to init sample client dm.")
+
+

@@ -143,7 +143,9 @@ def main():
         device = device,
         dsa_used = args.dsa,
         dc_iter = args.c_dc_iter,
-        top_k = args.top_k
+        top_k = args.top_k,
+        threshold = args.threshold,
+        c_init_sample = args.c_init_sample
     ) for i in range(args.client_num)]
 
     server = FedNumServer(
@@ -168,7 +170,8 @@ def main():
         dsa_used = args.dsa,
         dst_train = train_set,
         model_n = args.model_n,
-        init_sample = args.init_sample
+        init_sample = args.init_sample,
+        init_img_save = args.init_img_save
     )
     logging.info(f"Starting model training...")
 
@@ -179,6 +182,11 @@ def main():
     logging.info(f'Final evaluation: test acc is {acc}')
     '''
     logging.info(f"The model training completed.")
+
+    if args.img_save == "True":
+        img_file = args.syn_path
+        server.save_image(img_file)
+        logging.info(f"Save the synthetic images in {img_file}.")
 
 if __name__ == '__main__':
     main()

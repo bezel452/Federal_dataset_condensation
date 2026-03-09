@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 import torchvision.transforms as transforms
+import torchvision
 from networks import ConvNet
 
 import dsa
@@ -39,7 +40,8 @@ class FedNumServer:
             dsa_used,
             dst_train,
             model_n,
-            init_sample
+            init_sample,
+            init_img_save
     ):
         self.device = device
         self.global_model = global_model.to(device)
@@ -74,7 +76,7 @@ class FedNumServer:
 
         self.dsa = dsa_used
         self.dst_train = dst_train
-
+        self.init_img_save = init_img_save
         self.model_n = model_n
         if init_sample == 'real_sample':
             self.synthetic_images, self.synthetic_label = self.initialize_syn_data()
@@ -119,7 +121,9 @@ class FedNumServer:
         synthetic_label = []
         selected_clients = self.select_clients()
         for client in selected_clients:
-            img, labels = client.initialize_dm()
+            img, labels, flag = client.initialize_dm()
+            if flag == False:
+                continue
             synthetic_data.append(img)
             synthetic_label.append(labels)
         indices_class = [[] for c in range(num_classes)]
@@ -169,6 +173,7 @@ class FedNumServer:
         avg_features = []
         avg_logits = []
         avg_counts = []
+        n_communication = 0
         for i in range(self.model_n):
             all_avg_features = {}
             all_avg_logits = {}
@@ -183,6 +188,7 @@ class FedNumServer:
                     all_avg_features[c].append(client_data[i]['features'][c])
                     all_avg_logits[c].append(client_data[i]['logits'][c])
                     all_avg_counts[c].append(client_data[i]['counts'][c])
+                    n_communication += len(client_data[i]['features'][c])
             
             for c in all_avg_features.keys():
         #     print(all_avg_features[c])
@@ -193,6 +199,8 @@ class FedNumServer:
             avg_features.append(all_avg_features)
             avg_logits.append(all_avg_logits)
             avg_counts.append(all_avg_counts)
+
+        print(f"Round {self.current_round}: communication volume: {n_communication}")
 
         optimizer_img = torch.optim.SGD([self.synthetic_images, ], lr = self.image_lr, momentum=0.5)
         optimizer_img.zero_grad()
@@ -251,6 +259,68 @@ class FedNumServer:
     def fit(self):
         for round in range(self.communication_rounds):
             self.current_round = round
+
+            if round == 0:
+                if self.init_img_save == "True":
+                    self.save_image("images_init")
+                    print(f"Save the initialized synthetic images in images_init.")
+                
+                print("Test initializing data...")
+                
+                syn_images, syn_labels = copy.deepcopy(self.synthetic_images.detach()), copy.deepcopy(self.synthetic_label.detach())
+
+                synthetic_dataset = TensorDataset(syn_images, syn_labels)
+                synthetic_dataloader = DataLoader(synthetic_dataset, self.batch_size, shuffle=True, num_workers=0)
+                
+                self.global_model = ConvNet(
+                        channel=self.dataset_info['channel'],
+                        num_classes=self.dataset_info['num_classes'],
+                        net_width=128,
+                        net_depth=3,
+                        net_act='relu',
+                        net_norm='instancenorm',
+                        net_pooling='avgpooling',
+                        im_size=self.dataset_info['im_size']
+                    ).to(self.device)
+                
+                self.global_model.train()  # 切换到训练模式
+                lr = 0.01
+                model_optimizer = torch.optim.SGD(
+                    self.global_model.parameters(),
+                    lr=lr,
+                    weight_decay=0.0005,
+                    momentum=0.9,
+                )
+                loss_function = torch.nn.CrossEntropyLoss().to(self.device)
+                total_loss = 0
+                lr_schedule = [self.model_epochs//2+1]
+                for epoch in range(self.model_epochs + 1):
+                    for x, target in synthetic_dataloader:
+                        self.global_model.train()
+                        # 数据移至设备
+                        x, target = x.to(self.device), target.to(self.device)
+                        target = target.long()
+                        if self.dsa:
+                            x = dsa.DiffAugment(x, 'color_crop_cutout_flip_scale_rotate', param=self.param)
+                        # 前向传播
+                        pred = self.global_model(x)
+                        loss = loss_function(pred, target)
+
+                        # 反向传播和参数更新
+                        model_optimizer.zero_grad()
+                        loss.backward()
+                        model_optimizer.step()
+                        total_loss += loss.item()
+                        if epoch in lr_schedule:
+                            lr *= 0.1
+                            model_optimizer = torch.optim.SGD(
+                                self.global_model.parameters(),
+                                lr=lr,
+                                weight_decay=0.0005,
+                                momentum=0.9,
+                            )
+                acc = self.evaluate()
+                print(f'[Init Data Test] epoch avg loss = {total_loss / self.model_epochs}, test acc = {acc}.')
 
             start_time = time.time()
             model_list = []
@@ -417,3 +487,11 @@ class FedNumServer:
                 correct += (pred_label == target.data).sum().item()
 
         return correct / float(total)
+    
+    def save_image(self, file):
+        if not os.path.exists(file):
+            os.mkdir(file)
+        syn_images = copy.deepcopy(self.synthetic_images.detach())
+        for i, img in enumerate(syn_images):
+            file_path = file + '/' + str(i) + '.png'
+            torchvision.utils.save_image(img, file_path)

@@ -25,7 +25,9 @@ class FedNumClient:
             device: torch.device,
             dsa_used: bool,
             dc_iter: int,
-            top_k: int
+            top_k: int,
+            threshold: int,
+            c_init_sample: str              
     ):
         self.cid = cid
         self.train_set = train_set
@@ -39,6 +41,9 @@ class FedNumClient:
         self.dsa = dsa_used
         self.dc_iter = dc_iter
         self.top_k = top_k
+        self.threshold = threshold
+        self.init_sample = c_init_sample
+        self.selected_classes = []
         self.images = self.initialize_data()
         '''
         if init_sample == 'dm':
@@ -80,18 +85,19 @@ class FedNumClient:
         images = {}
         for c in self.classes:
             available_samples = len(self.train_set.indices_class[c])
-            if available_samples == 0:
-                print(f"Client {self.cid} has no samples for class {c}, so skipping ... ")
+            if available_samples < self.threshold:
+                print(f"Client {self.cid} has no required samples for class {c}, so skipping ... ")
                 continue
             all_real_images = []
             indices = self.train_set.indices_class[c]
             for idx in indices:
                 all_real_images.append(self.train_set.images_all[idx].unsqueeze(0))
-
-            if len(all_real_images) == 0:
+            '''
+            if len(all_real_images) <= self.threshold:    
                 images[c] = []
                 continue
-
+            '''
+            self.selected_classes.append(c)
             original_images = torch.cat(all_real_images, dim=0)
 
             images_s = original_images.size(0)
@@ -125,9 +131,13 @@ class FedNumClient:
         
         for i, c in enumerate(self.classes):
             for idx in top_k_idx:
-                if idx == len(self.train_set.indices_class[c]):
+                if idx == len(self.train_set.indices_class[c]) and len(self.train_set.indices_class[c]) >= self.threshold:
                     selected_classes.append(c)
                     break
+        if len(selected_classes) <= 0:
+            print(f"Client {self.cid}: No selected classes...")
+            return 0, 0, False
+        
         print(f"Client {self.cid}: Classes {selected_classes} are used to initialize synthetic data...")
         synthetic_images = torch.randn(
                 size=(len(selected_classes) * self.ipc, 
@@ -136,9 +146,9 @@ class FedNumClient:
                     self.dataset_info['im_size'][1]), 
                     dtype=torch.float, requires_grad=True, device=self.device
                 )
-
-        for i, c in enumerate(selected_classes):
-            synthetic_images.data[i * self.ipc : (i + 1) * self.ipc] = self.train_set.get_images(c, self.ipc, avg=False).detach().data
+        if self.init_sample == "real_sample":
+            for i, c in enumerate(selected_classes):
+                synthetic_images.data[i * self.ipc : (i + 1) * self.ipc] = self.train_set.get_images(c, self.ipc, avg=False).detach().data
         optimizer_image = torch.optim.SGD([synthetic_images], lr=1, momentum=0.5, weight_decay=0)
         optimizer_image.zero_grad()
 
@@ -179,7 +189,7 @@ class FedNumClient:
                 print(f'[Initialization] client{self.cid}, DM {dc}, avg loss = {loss.item() / len(selected_classes)}')
 
         synthetic_labels = torch.cat([torch.ones(self.ipc) * c for c in selected_classes])
-        return copy.deepcopy(synthetic_images.detach()), synthetic_labels
+        return copy.deepcopy(synthetic_images.detach()), synthetic_labels, True
         
     def get_features_logits(self, model, seed):
         model.eval()
@@ -189,7 +199,8 @@ class FedNumClient:
         counts = {}
 
         with torch.no_grad():
-            for c in self.classes:
+            for c in self.selected_classes:
+                
                 indices_div = torch.randperm(len(self.images[c]))
                 all_real_images = self.images[c][indices_div]
                 if len(all_real_images) == 0:
@@ -231,7 +242,7 @@ class FedNumClient:
                 counts[c] = torch.tensor(avg_counts_list)
 
         return {
-            "classes": self.classes,
+            "classes": self.selected_classes,
             "features": features,
             "logits": logits,
             "counts": counts,
