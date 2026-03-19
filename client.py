@@ -91,7 +91,7 @@ class FedNumClient:
             all_real_images = []
             indices = self.train_set.indices_class[c]
             for idx in indices:
-                all_real_images.append(self.train_set.images_all[idx].unsqueeze(0))
+                all_real_images.append(self.train_set.images_all[idx].unsqueeze(0).cpu())
             '''
             if len(all_real_images) <= self.threshold:    
                 images[c] = []
@@ -117,8 +117,9 @@ class FedNumClient:
                     break
 
             all_real_images = torch.cat(all_real_images_expanded, dim=0)
-            all_real_images = all_real_images.to(self.device)
+            all_real_images = all_real_images.cpu()
             images[c] = all_real_images
+            torch.cuda.empty_cache()
         return images
     
     def initialize_dm(self):

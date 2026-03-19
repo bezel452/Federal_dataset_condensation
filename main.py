@@ -103,13 +103,14 @@ def main():
     '''
         数据集矩阵
     '''
+    '''
     logging.info("The number of samples in each class...")
     for i, set_idx in enumerate(train_sets):
         client_class_list = [0 for _ in range(dataset_info['num_classes'])]
         for idx, (img, label) in enumerate(set_idx):
             client_class_list[label] += 1
         logging.info(f"Client {i}: samples in each class: {client_class_list}")
-
+    '''
 
     if args.model == 'ConvNet':
         global_model = ConvNet(
@@ -184,7 +185,7 @@ def main():
     logging.info(f"The model training completed.")
 
     if args.img_save == "True":
-        img_file = args.syn_path
+        img_file = args.syn_path + '/' + args.dataset
         server.save_image(img_file)
         logging.info(f"Save the synthetic images in {img_file}.")
 

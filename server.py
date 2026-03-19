@@ -262,7 +262,7 @@ class FedNumServer:
 
             if round == 0:
                 if self.init_img_save == "True":
-                    self.save_image("images_init")
+                    self.save_image("images_init/" + self.dataset_info['dataset'])
                     print(f"Save the initialized synthetic images in images_init.")
                 
                 print("Test initializing data...")

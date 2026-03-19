@@ -3,6 +3,8 @@ import numpy as np
 from torchvision import datasets, transforms
 import os
 import json
+from tinyimagenet import TinyImageNet
+
 
 def get_dataset(dataset, dataset_root, batch_size):
     if dataset == 'CIFAR10':
@@ -15,10 +17,49 @@ def get_dataset(dataset, dataset_root, batch_size):
         trainset = datasets.CIFAR10(dataset_root, train=True, download=True, transform=transform)  # no augmentation
         testset = datasets.CIFAR10(dataset_root, train=False, download=True, transform=transform)
         class_names = trainset.classes
+    elif dataset == 'CIFAR100':
+        channel = 3
+        im_size = (32, 32)
+        num_classes = 100
+        mean = [0.5071, 0.4866, 0.4409]
+        std = [0.2673, 0.2564, 0.2762]
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
+        trainset = datasets.CIFAR100(dataset_root, train=True, download=True, transform=transform) # no augmentation
+        testset = datasets.CIFAR100(dataset_root, train=False, download=True, transform=transform)
+        class_names = trainset.classes
+    elif dataset == 'tinyimagenet':
+        channel = 3
+        im_size = (224, 224)
+        num_classes = 200
+        mean=[0.485, 0.456, 0.406]
+        std=[0.229, 0.224, 0.225]
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+        val_transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+        trainset = TinyImageNet(dataset_root, train=True, transform=train_transform)
+        testset = TinyImageNet(dataset_root, train=False, transform=val_transform)
+        
+        class_names = list(trainset.tgt_idx_to_class.keys())
     else:
         raise NotImplementedError('Unknown Dataset.')
     
     dataset_info = {
+        'dataset': dataset,
         'channel': channel,
         'im_size': im_size,
         'num_classes': num_classes,
@@ -40,6 +81,35 @@ def partition(args):
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
         dataset = datasets.CIFAR10(args.dataset_root, train=True, download=True, transform=transform)  # no augmentation
         class_names = dataset.classes
+    elif args.dataset == 'CIFAR100':
+        num_classes = 100
+        mean = [0.4914, 0.4822, 0.4465]
+        std = [0.2023, 0.1994, 0.2010]
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
+        dataset = datasets.CIFAR100(args.dataset_root, train=True, download=True, transform=transform)  # no augmentation
+        class_names = dataset.classes
+    elif args.dataset == 'tinyimagenet':
+        num_classes = 200
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+        val_transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+        dataset = TinyImageNet(args.dataset_root, train=True, transform=train_transform)
+        
     else:
         raise NotImplementedError('Unknown Dataset.')
     
@@ -103,8 +173,10 @@ class PerLabelDatasetNonIID():
             if lab not in classes:
                 continue
             self.indices_class[lab].append(i)
-        self.images_all = torch.cat(self.images_all, dim=0).to(device)
-        labels_all = torch.tensor(labels_all, dtype=torch.long, device=device)
+#        self.images_all = torch.cat(self.images_all, dim=0).to(device)
+        self.images_all = torch.cat(self.images_all, dim=0).cpu()
+#        labels_all = torch.tensor(labels_all, dtype=torch.long, device=device)
+        labels_all = torch.tensor(labels_all, dtype=torch.long, device='cpu')
 
     def __len__(self):
         return self.images_all.shape[0]
